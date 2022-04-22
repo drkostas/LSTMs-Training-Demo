@@ -57,7 +57,7 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
     model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
 
     if(model_type =="lstm"):
-        model.add(layers.lstm(hidden_size, return_sequences=True))
+        model.add(layers.LSTM(hidden_size, return_sequences=True))
     else:
         model.add(layers.SimpleRNN(hidden_size, return_sequences = True))
 
@@ -75,7 +75,8 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
 
 def select_char(prob_vec, sampling_temp):
     prob_vec = prob_vec/sampling_temp
-    prob_vec = layers.Softmax(prob_vec)
+    soft_max = layers.Softmax()
+    prob_vec = soft_max(prob_vec).numpy()
     for i in range(len(prob_vec))[1:]:
         prob_vec[i] = prob_vec[i]+prob_vec[i-1]
     rand_val = np.random.random()
@@ -83,7 +84,7 @@ def select_char(prob_vec, sampling_temp):
     if(rand_val<prob_vec[0]):
         char_vec[0]= 1
         return char_vec
-    for i in range(len(prob_vec))[:1]:
+    for i in range(len(prob_vec))[1:]:
         if ( rand_val<prob_vec[i] and rand_val>prob_vec[i-1]):
             char_vec[i] = 1
             return char_vec
@@ -93,20 +94,24 @@ def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
     current_vec = initial_chars
 
     for i in range(num_chars_produce):
-        prob_vec = model.predict(current_vec)
+        prob_vec = model.predict(np.array([current_vec]))[0,len(initial_chars)-1]
         next_char = select_char(prob_vec,sampling_temp)
         predicted_string.append(next_char.tolist())
-        current_vec = np.append(current_vec[1:], predicted_string)
+        current_vec = np.append(current_vec[1:], np.array([next_char]),axis=0)
     return predicted_string
 
 
 
 
-def train_model(model, training_data, number_epochs, output_rate) -> Model:
+def train_model(model, x,y , number_epochs, output_rate) -> Model:
 
+    generated_strings = []
     for i in range(number_epochs):
         if(i%output_rate==0):
-            print("")
+            random_start = np.random.randint(0,len(x))
+            generated_strings.append(predict_chars(x[random_start],model,1,5))
+        model.fit(x,y,epochs =1)
+
 
 
 
@@ -169,88 +174,12 @@ def main():
 
     x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
 
-    model = build_model_RNN(model_type, hidden_state, window_size,sampling_temp, vocab_size)
-    test = model.fit(x,y,epochs = epochs, batch_size = batch_size)
-    # ---------------------- Build/Load the Model ---------------------- #
+
     print("####### Building/Loading the Model #######")
-    # Prepare images for training
-    # images_train = images_train.reshape(*images_train.shape, 1)
-    # encoded_train_labels = images_train
+    # ---------------------- Build/Load the Model ---------------------- #
 
-    # Training/Tuning
-    # if not args.tuning:
-    #     n_classes = (encoded_train_labels.shape[1], encoded_train_labels_2.shape[1])
-    #     encoded_train_labels = [encoded_train_labels, encoded_train_labels_2]
-    #     if args.load_checkpoint:
-    #         model = tf.keras.models.load_model(chkp_filename)
-    #         if chkp_new_lr is not None:
-    #             K.set_value(model.optimizer.learning_rate, chkp_new_lr)
-    #             print("#### CHANGING LEARNING RATE TO:", chkp_new_lr, " ####")
-    #     else:
-    #         model = build_model(input_shape=images_train.shape[1:],
-    #                             n_classes=n_classes,
-    #                             lr=lr)
-    #     print(model.summary())
-    # else:
-    #     print("####### Tuning #######")
-    #     build_model = partial(build_model, input_shape=images_train.shape[1:],
-    #                           n_classes=encoded_train_labels.shape[1],
-    #                           lr=lr, max_conv_layers=max_conv_layers)
-    #     model = kt.Hyperband(build_model,
-    #                          objective='val_accuracy',
-    #                          factor=3,
-    #                          directory=os.path.join(model_path,
-    #                                                 f'{args.attr}_attr',
-    #                                                 f'task_{args.task}'),
-    #                          project_name=f'tuning_{epochs}epochs_{batch_size}batchsize_{lr}lr_max_conv_layers{max_conv_layers}')
-    #     stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
-    #     callbacks.append(stop_early)
-    #     model.search(images_train,
-    #                  encoded_train_labels,
-    #                  epochs=tuning_epochs,
-    #                  batch_size=batch_size,
-    #                  validation_split=validation_set_perc,
-    #                  callbacks=callbacks)
-    #     # Get the optimal hyperparameters
-    #     # best_hps = model.get_best_hyperparameters(num_trials=1)[0]
-    #     print("Best Model:")
-    #     print(model.results_summary())
-    #     print(model.search_space_summary())
-    #     print("####### Tuning Done #######")
-    #     return
-
-    # ---------------------- Fit the Model ---------------------- #
-    # if not args.plot_only:
-    #     print("####### Fitting the Model #######")
-    #     callbacks.append(TensorBoard(log_dir=log_folder,
-    #                                  histogram_freq=1,
-    #                                  write_graph=True,
-    #                                  write_images=False,
-    #                                  update_freq='epoch',
-    #                                  profile_batch=2,
-    #                                  embeddings_freq=1))
-    #     callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-    #         filepath=os.path.join(save_dir_path, model_name[:-3] + '_epoch{epoch:02d}.ckpt'),
-    #         save_weights_only=False,
-    #         monitor='val_loss',
-    #         mode='auto',
-    #         save_best_only=True))
-    #
-    #     model.fit(images_train,
-    #               encoded_train_labels,
-    #               initial_epoch=chkp_epoch_to_load if args.load_checkpoint else 0,
-    #               epochs=epochs + chkp_additional_epochs if args.load_checkpoint else epochs,
-    #               batch_size=batch_size,
-    #               validation_split=validation_set_perc,
-    #               callbacks=callbacks)
-
-    # ---------------------- Plots ---------------------- #
-    # file_writer = tf.summary.create_file_writer(log_folder)
-
-    # ---------------------- Save Model ---------------------- #
-    # If we want to save every few epochs:
-    # if not args.plot_only:
-    #     model.save(save_file_path)
+    model = build_model_RNN(model_type, hidden_state, window_size,sampling_temp, vocab_size)
+    train_model(model,x,y,epochs,1)
 
 
 if __name__ == '__main__':
