@@ -4,6 +4,7 @@ import argparse
 from functools import partial
 from typing import *
 # ML libs
+import numpy as np
 from tensorflow.keras import backend as K
 from tensorflow.keras import Model, optimizers, losses, metrics
 from tensorflow.keras.models import Sequential, Model
@@ -55,13 +56,16 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
 
     model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
 
-    model.add(layers.SimpleRNN(hidden_size, return_sequences = True))
+    if(model_type =="lstm"):
+        model.add(layers.lstm(hidden_size, return_sequences=True))
+    else:
+        model.add(layers.SimpleRNN(hidden_size, return_sequences = True))
 
 
 
     model.add(layers.Dense(vocab_size))
-    model.add(layers.Lambda(lambda x: x / sampling_temp))
-    model.add(layers.Softmax())
+    #model.add(layers.Lambda(lambda x: x / sampling_temp))
+    #model.add(layers.Softmax())
 
 
     opt = optimizers.RMSprop(learning_rate=lr)
@@ -69,33 +73,42 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
     model.summary()
     return model
 
-def tune_model_RNN(hp, input_shape: Tuple[int, int], n_classes: int,
-                   lr: float = 0.001, max_conv_layers: int = 3) -> Model:
-    """ Build a feed-forward conv neural network"""
-    # # Tuning Params
-    # hp_cnn_activation = [hp.Choice(f'cnn_activation_{i}', values=['relu'], default='relu')
-    #                      for i in range(max_conv_layers)]  # Only relu for now
-    # hp_dense_activation = hp.Choice('dense_activation', values=['relu'], default='relu')  # Only relu
-    # hp_filters = [hp.Choice(f'num_filters_{i}', values=[32, 64, 128], default=32)
-    #               for i in range(max_conv_layers)]
-    # hp_dense_units = hp.Int('dense_units', min_value=100, max_value=200, step=25)
-    # hp_lr = hp.Float('learning_rate', min_value=1e-5, max_value=1e-2, sampling='LOG', default=1e-3)
-    # model = Sequential()
-    # # Add the layers
-    # for i in range(1, hp.Int("num_layers", 2, max_conv_layers + 1)):
-    #     model.add(Conv2D(filters=hp_filters[i - 1], kernel_size=3,
-    #                      activation=hp_cnn_activation[i - 1], input_shape=input_shape))
-    #     model.add(MaxPooling2D(pool_size=(3, 3), padding="same"))
-    # model.add(Flatten())
-    # model.add(Dense(hp_dense_units, activation=hp_dense_activation))
-    # model.add(Dense(n_classes, activation='softmax'))
-    # # Select the optimizer and the loss function
-    # opt = optimizers.Adam(learning_rate=hp_lr)
-    # # opt = optimizers.SGD(learning_rate=hp_lr)
-    # model.compile(loss=tf.keras.losses.CategoricalCrossentropy(),
-    #               optimizer=opt, metrics=['accuracy', 'mse'])
-    # return model
-    pass
+def select_char(prob_vec, sampling_temp):
+    prob_vec = prob_vec/sampling_temp
+    prob_vec = layers.Softmax(prob_vec)
+    for i in range(len(prob_vec))[1:]:
+        prob_vec[i] = prob_vec[i]+prob_vec[i-1]
+    rand_val = np.random.random()
+    char_vec = np.zeros(len(prob_vec))
+    if(rand_val<prob_vec[0]):
+        char_vec[0]= 1
+        return char_vec
+    for i in range(len(prob_vec))[:1]:
+        if ( rand_val<prob_vec[i] and rand_val>prob_vec[i-1]):
+            char_vec[i] = 1
+            return char_vec
+
+def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
+    predicted_string = np.copy(initial_chars).tolist()
+    current_vec = initial_chars
+
+    for i in range(num_chars_produce):
+        prob_vec = model.predict(current_vec)
+        next_char = select_char(prob_vec,sampling_temp)
+        predicted_string.append(next_char.tolist())
+        current_vec = np.append(current_vec[1:], predicted_string)
+    return predicted_string
+
+
+
+
+def train_model(model, training_data, number_epochs, output_rate) -> Model:
+
+    for i in range(number_epochs):
+        if(i%output_rate==0):
+            print("")
+
+
 
 
 def main():
@@ -142,19 +155,22 @@ def main():
     # ---------------------- Load and prepare Dataset ---------------------- #
     print("####### Loading Dataset #######")
     # Load the dataset
+
+    # Parameters
     window_size = 20
     hidden_state = 100
     stride = 5
     sampling_temp = 1
     vocab_size = 37
     model_type = "lstm"
-
+    epochs = 5
+    batch_size = 50;
 
 
     x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
 
     model = build_model_RNN(model_type, hidden_state, window_size,sampling_temp, vocab_size)
-    test = model.fit(x,y,epochs = 1, batch_size = 50)
+    test = model.fit(x,y,epochs = epochs, batch_size = batch_size)
     # ---------------------- Build/Load the Model ---------------------- #
     print("####### Building/Loading the Model #######")
     # Prepare images for training
