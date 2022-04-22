@@ -7,8 +7,7 @@ from typing import *
 from tensorflow.keras import backend as K
 from tensorflow.keras import Model, optimizers, losses, metrics
 from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Dense, Flatten, Activation, \
-    Conv2D, MaxPooling2D, Lambda, Input, Conv2DTranspose, Reshape
+from tensorflow.keras import layers
 from tensorflow.keras.losses import mse
 from tensorflow.keras.callbacks import TensorBoard
 import keras_tuner as kt
@@ -50,20 +49,25 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def build_model_RNN(input_shape: Tuple[int, int], n_classes: int, lr: float = 0.001) -> Model:
-    """ Build a feed-forward Dense neural network"""
-    # model = Sequential()
-    # # Add the layers
-    # model.add(Dense(1024, input_shape=input_shape, activation='tanh'))
-    # model.add(Dense(512, activation='sigmoid'))
-    # model.add(Dense(100, activation='relu'))
-    # model.add(Dense(n_classes, activation='softmax'))
-    # # Select the optimizer and the loss function
-    # opt = optimizers.SGD(learning_rate=lr)
-    # model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt, metrics=['accuracy'])
-    # return model
-    pass
+def build_model_RNN(model_type: str, hidden_size: int, window_size: int, sampling_temp: int, vocab_size: int, lr:int = .1) -> Model:
+    """ Build The Model"""
+    model = Sequential()
 
+    model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
+
+    model.add(layers.SimpleRNN(hidden_size, return_sequences = True))
+
+
+
+    model.add(layers.Dense(vocab_size))
+    model.add(layers.Lambda(lambda x: x / sampling_temp))
+    model.add(layers.Softmax())
+
+
+    opt = optimizers.RMSprop(learning_rate=lr)
+    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
+    model.summary()
+    return model
 
 def tune_model_RNN(hp, input_shape: Tuple[int, int], n_classes: int,
                    lr: float = 0.001, max_conv_layers: int = 3) -> Model:
@@ -138,8 +142,19 @@ def main():
     # ---------------------- Load and prepare Dataset ---------------------- #
     print("####### Loading Dataset #######")
     # Load the dataset
+    window_size = 20
+    hidden_state = 100
+    stride = 5
+    sampling_temp = 1
+    vocab_size = 37
+    model_type = "lstm"
+
+
+
     x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
 
+    model = build_model_RNN(model_type, hidden_state, window_size,sampling_temp, vocab_size)
+    test = model.fit(x,y,epochs = 1, batch_size = 50)
     # ---------------------- Build/Load the Model ---------------------- #
     print("####### Building/Loading the Model #######")
     # Prepare images for training
