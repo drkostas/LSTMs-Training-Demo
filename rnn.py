@@ -168,11 +168,13 @@ def main():
     x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
     print("####### Building/Loading the Model #######")
     # ---------------------- Build/Load the Model ---------------------- #
-
+    return
     model = build_model_RNN(model_type, hidden_state, window_size, sampling_temp, vocab_size)
     train_model(model, x, y, epochs, 1)
     one_hot_dict = load_pickle('one_hot_dict.pkl')
-    reverse_dict = {values:keys for keys, values in one_hot_dict.items()}
+    reverse_dict = {str(values): keys for keys, values in one_hot_dict.items()}
+    # Example
+    print(reverse_dict[str(one_hot_dict['a'])])
 
 
 if __name__ == '__main__':
