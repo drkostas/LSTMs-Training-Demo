@@ -61,6 +61,7 @@ class DataLoader:
             one_hot_vocab[i, i] = 1
         one_hot_vocab = one_hot_vocab.tolist()
         self.one_hot_dict = {letter: one_hot for letter, one_hot in zip(vocab, one_hot_vocab)}
+        save_pickle(self.one_hot_dict, 'one_hot_dict.pkl')
 
     def sanitize(self) -> List[str]:
         pattern = re.compile(r'[^a-z0-9 ]+')
@@ -102,17 +103,18 @@ class DataLoader:
         return x_one_hot, y_one_hot
 
 
-# def save_pickle(data, file_name: str, attr: str, task: str,
-#                 protocol=pickle.HIGHEST_PROTOCOL):
-#     file_path = os.path.join(model_path, f'{attr}_attr', f'task_{task}')
-#     os.makedirs(file_path, exist_ok=True)
-#     file_path = os.path.join(file_path, file_name)
-#     with open(file_path, 'wb') as f:
-#         pickle.dump(data, f, protocol=protocol)
-#
-#
-# def load_pickle(file_name: str, attr: str, task: str):
-#     file_path = os.path.join(model_path, f'{attr}_attr', f'task_{task}', file_name)
-#     with open(file_path, 'rb') as f:
-#         data = pickle.load(f)
-#     return data
+def save_pickle(data, file_name: str,
+                protocol=pickle.HIGHEST_PROTOCOL):
+    file_path = os.path.join(model_path, f'encodings')
+    os.makedirs(file_path, exist_ok=True)
+    file_path = os.path.join(file_path, file_name)
+    with open(file_path, 'wb') as f:
+        pickle.dump(data, f, protocol=protocol)
+
+
+def load_pickle(file_name: str):
+    file_path = os.path.join(model_path, f'encodings')
+    file_path = os.path.join(file_path, file_name)
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f)
+    return data

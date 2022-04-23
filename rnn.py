@@ -50,70 +50,64 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def build_model_RNN(model_type: str, hidden_size: int, window_size: int, sampling_temp: int, vocab_size: int, lr:int = .1) -> Model:
+def build_model_RNN(model_type: str, hidden_size: int, window_size: int, sampling_temp: int,
+                    vocab_size: int, lr: int = .1) -> Model:
     """ Build The Model"""
     model = Sequential()
 
     model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
 
-    if(model_type =="lstm"):
+    if (model_type == "lstm"):
         model.add(layers.LSTM(hidden_size, return_sequences=True))
     else:
-        model.add(layers.SimpleRNN(hidden_size, return_sequences = True))
-
-
+        model.add(layers.SimpleRNN(hidden_size, return_sequences=True))
 
     model.add(layers.Dense(vocab_size))
-    #model.add(layers.Lambda(lambda x: x / sampling_temp))
-    #model.add(layers.Softmax())
-
+    # model.add(layers.Lambda(lambda x: x / sampling_temp))
+    # model.add(layers.Softmax())
 
     opt = optimizers.RMSprop(learning_rate=lr)
     model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
     model.summary()
     return model
 
+
 def select_char(prob_vec, sampling_temp):
-    prob_vec = prob_vec/sampling_temp
+    prob_vec = prob_vec / sampling_temp
     soft_max = layers.Softmax()
     prob_vec = soft_max(prob_vec).numpy()
     for i in range(len(prob_vec))[1:]:
-        prob_vec[i] = prob_vec[i]+prob_vec[i-1]
+        prob_vec[i] = prob_vec[i] + prob_vec[i - 1]
     rand_val = np.random.random()
     char_vec = np.zeros(len(prob_vec))
-    if(rand_val<prob_vec[0]):
-        char_vec[0]= 1
+    if (rand_val < prob_vec[0]):
+        char_vec[0] = 1
         return char_vec
     for i in range(len(prob_vec))[1:]:
-        if ( rand_val<prob_vec[i] and rand_val>prob_vec[i-1]):
+        if (rand_val < prob_vec[i] and rand_val > prob_vec[i - 1]):
             char_vec[i] = 1
             return char_vec
+
 
 def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
     predicted_string = np.copy(initial_chars).tolist()
     current_vec = initial_chars
 
     for i in range(num_chars_produce):
-        prob_vec = model.predict(np.array([current_vec]))[0,len(initial_chars)-1]
-        next_char = select_char(prob_vec,sampling_temp)
+        prob_vec = model.predict(np.array([current_vec]))[0, len(initial_chars) - 1]
+        next_char = select_char(prob_vec, sampling_temp)
         predicted_string.append(next_char.tolist())
-        current_vec = np.append(current_vec[1:], np.array([next_char]),axis=0)
+        current_vec = np.append(current_vec[1:], np.array([next_char]), axis=0)
     return predicted_string
 
 
-
-
-def train_model(model, x,y , number_epochs, output_rate) -> Model:
-
+def train_model(model, x, y, number_epochs, output_rate) -> Model:
     generated_strings = []
     for i in range(number_epochs):
-        if(i%output_rate==0):
-            random_start = np.random.randint(0,len(x))
-            generated_strings.append(predict_chars(x[random_start],model,1,5))
-        model.fit(x,y,epochs =1)
-
-
-
+        if (i % output_rate == 0):
+            random_start = np.random.randint(0, len(x))
+            generated_strings.append(predict_chars(x[random_start], model, 1, 5))
+        model.fit(x, y, epochs=1)
 
 
 def main():
@@ -169,17 +163,16 @@ def main():
     vocab_size = 37
     model_type = "lstm"
     epochs = 5
-    batch_size = 50;
-
+    batch_size = 50
 
     x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
-
-
     print("####### Building/Loading the Model #######")
     # ---------------------- Build/Load the Model ---------------------- #
 
-    model = build_model_RNN(model_type, hidden_state, window_size,sampling_temp, vocab_size)
-    train_model(model,x,y,epochs,1)
+    model = build_model_RNN(model_type, hidden_state, window_size, sampling_temp, vocab_size)
+    train_model(model, x, y, epochs, 1)
+    one_hot_dict = load_pickle('one_hot_dict.pkl')
+    reverse_dict = {values:keys for keys, values in one_hot_dict.items()}
 
 
 if __name__ == '__main__':
