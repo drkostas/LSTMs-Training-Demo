@@ -27,37 +27,46 @@ def get_args() -> argparse.Namespace:
         description='Project 4 for the Deep Learning class (COSC 525). '
                     'Involves the development of a Convolutional Neural Network.',
         add_help=False)
-    # Required Args
-    required_args = parser.add_argument_group('Required Arguments')
-    # required_args.add_argument('-t', '--task', type=int, required=True,
-    #                            choices=[1, 2, 3, 4, 5], help="The task/model to train on.")
+    # Core args
+    core_args = parser.add_argument_group('Core Arguments')
+    core_args.set_defaults(feature=False)
+    core_args.add_argument("-d", "--dataset", type=str, required=False, default='beatles.txt',
+                           help="The dataset to use.")
+    core_args.add_argument('-m', '--model', type=str, required=False, default='rnn',
+                           choices=['rnn', 'lstm'], help="The model to use.")
+    core_args.add_argument('-h', '--hidden-state', type=int, required=False, default=100,
+                           help="The size of the hidden state.")
+    core_args.add_argument('-w', '--window', type=int, required=False, default=10,
+                           help="The window size.")
+    core_args.add_argument('-s', '--stride', type=int, required=False, default=6,
+                           help="The stride size.")
+    core_args.add_argument('-t', '--temperature', type=int, required=False, default=1,
+                           help="The sampling temperature.")
     # Optional args
     optional_args = parser.add_argument_group('Optional Arguments')
     optional_args.set_defaults(feature=False)
     optional_args.add_argument("--tuning", action='store_true', required=False,
                                help="Whether to use the validation or training set for training.")
-    optional_args.add_argument("--n-rows", default=-1, type=int, required=False,
-                               help="How many rows of the dataset to read.")
     optional_args.add_argument("--load-checkpoint", action='store_true', required=False,
                                help="Whether to load model from a checkpoint.")
     optional_args.add_argument("--plot-only", action='store_true', required=False,
                                help="No training, only plot results. "
                                     "Requires the use of --load-checkpoint.")
-    optional_args.add_argument("-h", "--help", action="help", help="Show this help message and exit")
+    optional_args.add_argument("--help", action="help", help="Show this help message and exit")
     args = parser.parse_args()
     if args.plot_only and not args.load_checkpoint:
         raise ValueError("--plot-only requires --load-checkpoint")
     return args
 
 
-def build_model_RNN(model_type: str, hidden_size: int, window_size: int, sampling_temp: int,
-                    vocab_size: int, lr: int = .1) -> Model:
+def build_model(model_type: str, hidden_size: int, window_size: int, vocab_size: int,
+                lr: float = .01) -> Model:
     """ Build The Model"""
     model = Sequential()
 
     model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
 
-    if (model_type == "lstm"):
+    if model_type == "lstm":
         model.add(layers.LSTM(hidden_size, return_sequences=True))
     else:
         model.add(layers.SimpleRNN(hidden_size, return_sequences=True))
@@ -72,109 +81,188 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
     return model
 
 
-def select_char(prob_vec, sampling_temp):
-    prob_vec = prob_vec / sampling_temp
-    soft_max = layers.Softmax()
-    prob_vec = soft_max(prob_vec).numpy()
+def tune_model(model_type: str, hidden_size: int, window_size: int, vocab_size: int,
+               lr: float = .01) -> Model:
+    """ Tune The Model"""
+    model = Sequential()
+
+    model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
+
+    if model_type == "lstm":
+        model.add(layers.LSTM(hidden_size, return_sequences=True))
+    else:
+        model.add(layers.SimpleRNN(hidden_size, return_sequences=True))
+
+    model.add(layers.Dense(vocab_size))
+    # model.add(layers.Lambda(lambda x: x / sampling_temp))
+    # model.add(layers.Softmax())
+
+    opt = optimizers.RMSprop(learning_rate=lr)
+    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
+    model.summary()
+    return model
+
+
+def select_char(prob_vec):
     for i in range(len(prob_vec))[1:]:
         prob_vec[i] = prob_vec[i] + prob_vec[i - 1]
     rand_val = np.random.random()
     char_vec = np.zeros(len(prob_vec))
-    if (rand_val < prob_vec[0]):
+    if rand_val < prob_vec[0]:
         char_vec[0] = 1
         return char_vec
     for i in range(len(prob_vec))[1:]:
-        if (rand_val < prob_vec[i] and rand_val > prob_vec[i - 1]):
+        if prob_vec[i] > rand_val > prob_vec[i - 1]:
             char_vec[i] = 1
             return char_vec
 
 
-def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
+def predict_chars(initial_chars, model, num_chars_produce):
     predicted_string = np.copy(initial_chars).tolist()
     current_vec = initial_chars
 
     for i in range(num_chars_produce):
         prob_vec = model.predict(np.array([current_vec]))[0, len(initial_chars) - 1]
-        next_char = select_char(prob_vec, sampling_temp)
+        next_char = select_char(prob_vec)
         predicted_string.append(next_char.tolist())
         current_vec = np.append(current_vec[1:], np.array([next_char]), axis=0)
     return predicted_string
 
 
-def train_model(model, x, y, number_epochs, output_rate) -> Model:
+def train_model(model, x, y, number_epochs, batch_size, output_rate, callbacks, sampling_temp=1,
+                lr=.01, validation_split=0.01, first_epoch=0) -> Model:
     generated_strings = []
-    for i in range(number_epochs):
-        if (i % output_rate == 0):
+
+    train_model = Sequential()
+    train_model.add(model)
+    opt = optimizers.RMSprop(learning_rate=lr)
+    train_model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
+
+    predict_model = Sequential()
+    predict_model.add(model)
+    predict_model.add(layers.Lambda(lambda j: j / sampling_temp))
+    predict_model.add(layers.Softmax())
+
+    train_model.add(layers.Softmax())
+    for i in range(first_epoch, number_epochs):
+        if i % output_rate == 0:
             random_start = np.random.randint(0, len(x))
-            generated_strings.append(predict_chars(x[random_start], model, 1, 5))
-        model.fit(x, y, epochs=1)
+            predicted_chars = predict_chars(initial_chars=x[random_start],
+                                            model=predict_model,
+                                            num_chars_produce=5)
+            generated_strings.append(predicted_chars)
+            print(''.join(decode_chars(generated_strings[len(generated_strings) - 1])))
+        train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
+                        callbacks=callbacks, validation_split=validation_split)
+
+
+def decode_chars(encoded_values):
+    one_hot_dict = load_pickle('one_hot_dict.pkl')
+    reverse_dict = {''.join(str(int(e)) for e in values): keys for keys, values in
+                    one_hot_dict.items()}
+    decoded_chars = []
+    for e_letter in encoded_values:
+        decoded_chars.append(reverse_dict[''.join(str(int(e)) for e in e_letter)])
+    return decoded_chars
 
 
 def main():
-    """This is the main function of train.py
+    """This is the main function of rnn.py
 
         Run "tensorboard --logdir logs/fit" in terminal and open http://localhost:6006/
     """
     args = get_args()
     # ---------------------- Hyperparameters ---------------------- #
-    # epochs = 70
-    # lr = 0.00032
-    # batch_size = 32
-    # chkp_epoch_to_load = 30
-    # chkp_additional_epochs = 30
-    # tuning_epochs = 20
-    # validation_set_perc = 0.2  # Percentage of the train dataset to use for validation
-    # max_conv_layers = 4  # Only for tuning
+    epochs = 1
+    batch_size = 120
+    lr = 0.1
+    validation_set_perc = .1
+    chkp_epoch_to_load = 1  # load checkpoint from this epoch
+    extra_epochs = 1  # extra epochs to train after loading checkpoint
+    tuning_epochs = 20  # How many epochs to train for tuning
+    dataset = args.dataset
+    model_type = args.model
+    hidden_state = args.hidden_state
+    window_size = args.window
+    stride = args.stride
+    sampling_temp = args.temperature
 
     # ---------------------- Initialize variables ---------------------- #
     print("####### Initializing variables #######")
-    # callbacks = []
-    # log_folder = "logs/fit/t-" + str(args.task) + \
-    #              "/a-" + args.attr + \
-    #              "/b-" + str(batch_size) + \
-    #              "/lr-" + str(lr)
-    # # Create a validation set suffix if needed
-    # val_set_suffix = ''
-    # if args.tuning:
-    #     val_set_suffix = '_tuning'
-    # # Save model path
-    # model_name = f'model_{epochs}epochs_{batch_size}batch-size_{lr}lr'
-    # if args.n_rows != -1:
-    #     model_name += f'_{args.n_rows}rows'
-    # model_name += f'{val_set_suffix}.h5'
-    # save_dir_path = os.path.join(model_path, f'{args.attr}_attr', f'task_{args.task}')
-    # save_file_path = os.path.join(save_dir_path, model_name)
-    # chkp_filename = os.path.join(save_dir_path,
-    #                              model_name[:-3] + f'_epoch{chkp_epoch_to_load:02d}.ckpt')
-    # if not args.tuning:
-    #     build_model = build_model_RNN
-    # else:
-    #     build_model = tune_model_RNN
+    callbacks = []
+    fit_or_val = 'fit' if not args.tuning else 'val'
+    model_folder_struct = f"{fit_or_val}" + \
+                          f"/dataset_{dataset}" + \
+                          f"/model_{model_type}" + \
+                          f"/hidden_{hidden_state}" + \
+                          f"/batch_{batch_size}" + \
+                          f"/stride_{stride}" + \
+                          f"/window_{window_size}" + \
+                          f"/temperature_{sampling_temp}" + \
+                          f"/lr_{lr}"
+    log_folder = f"logs/{model_folder_struct}"
+    callbacks.append(TensorBoard(log_dir=log_folder,
+                                 histogram_freq=1,
+                                 write_graph=True,
+                                 write_images=False,
+                                 update_freq='epoch',
+                                 profile_batch=2,
+                                 embeddings_freq=1))
+    # Create a validation set suffix if needed
+    # Save model path
+    model_name = model_folder_struct.replace("/", "-") + "/model.h5"
+    chkp_filename = os.path.join(model_path, model_name[:-3] + f'_epoch{chkp_epoch_to_load:02d}.ckpt')
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+        filepath=os.path.join(model_path, model_name[:-3] + '_epoch{epoch:02d}.ckpt'),
+        save_weights_only=False,
+        monitor='val_loss',
+        mode='auto',
+        save_best_only=True))
 
     # ---------------------- Load and prepare Dataset ---------------------- #
     print("####### Loading Dataset #######")
-    # Load the dataset
+    x, y, vocab_size = create_train_data(file_name=dataset, window_size=window_size, stride=stride)
 
-    # Parameters
-    window_size = 20
-    hidden_state = 100
-    stride = 5
-    sampling_temp = 1
-    vocab_size = 37
-    model_type = "lstm"
-    epochs = 5
-    batch_size = 50
-
-    x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
-    print("####### Building/Loading the Model #######")
     # ---------------------- Build/Load the Model ---------------------- #
-    return
-    model = build_model_RNN(model_type, hidden_state, window_size, sampling_temp, vocab_size)
-    train_model(model, x, y, epochs, 1)
-    one_hot_dict = load_pickle('one_hot_dict.pkl')
-    reverse_dict = {str(values): keys for keys, values in one_hot_dict.items()}
-    # Example
-    print(reverse_dict[str(one_hot_dict['a'])])
+    print("####### Building/Loading the Model #######")
+    if not args.tuning:
+        if args.load_checkpoint:
+            model = tf.keras.models.load_model(chkp_filename)
+        else:
+            model = build_model(model_type=model_type, hidden_size=hidden_state,
+                                window_size=window_size,
+                                vocab_size=vocab_size, lr=lr)
+    else:
+        print("####### Tuning #######")
+        tune_model_ = partial(tune_model, model_type=model_type, hidden_size=hidden_state,
+                              window_size=window_size, vocab_size=vocab_size, lr=lr)
+        model = kt.Hyperband(tune_model_,
+                             objective='val_accuracy',
+                             factor=3,
+                             directory=model_path,
+                             project_name=model_folder_struct.replace("/", "-"))
+        stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
+        callbacks.append(stop_early)
+        model.search(x,
+                     y,
+                     epochs=tuning_epochs,
+                     batch_size=batch_size,
+                     validation_split=validation_set_perc,
+                     callbacks=callbacks)
+        # Get the optimal hyperparameters
+        # best_hps = model.get_best_hyperparameters(num_trials=1)[0]
+        print("Best Model:")
+        print(model.results_summary())
+        print(model.search_space_summary())
+        print("####### Tuning Done #######")
+        return
+    # ---------------------- Train the Model ---------------------- #
+    train_model(model=model, x=x, y=y,
+                number_epochs=epochs+extra_epochs if args.load_checkpoint else epochs,
+                batch_size=batch_size, output_rate=1,
+                callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
+                validation_split=validation_set_perc,
+                first_epoch=chkp_epoch_to_load if args.load_checkpoint else 0)
 
 
 if __name__ == '__main__':
@@ -183,3 +271,8 @@ if __name__ == '__main__':
     except Exception as e:
         print(str(e) + '\n' + str(traceback.format_exc()))
         raise e
+
+# TODO:
+# Code for tuning
+# Tune models
+# Start training

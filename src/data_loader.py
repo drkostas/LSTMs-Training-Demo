@@ -8,7 +8,15 @@ model_path = os.path.join(os.path.dirname(__file__), '..', 'models')
 
 
 def create_train_data(file_name: str, window_size: int, stride: int,
-                      debug: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+                      debug: bool = False) -> Tuple[np.ndarray, np.ndarray, int]:
+    """
+    Creates training data from a file.
+    :param file_name: The name of the file to load.
+    :param window_size: The size of the window to use.
+    :param stride: The stride to use.
+    :param debug: Whether to print debug information.
+    :return: A tuple containing the training data, the labels and the size of the vocab..
+    """
     dl = DataLoader(file_name, window_size, stride)
     dl.load()
     dl.sanitize()
@@ -25,7 +33,7 @@ def create_train_data(file_name: str, window_size: int, stride: int,
     x_one_hot, yx_one_hot = dl.one_hot_encode()
     print("x_one_hot shape: ", x_one_hot.shape)
     print("y_one_hot shape: ", yx_one_hot.shape)
-    return x_one_hot, yx_one_hot
+    return x_one_hot, yx_one_hot, dl.vocab_size
 
 
 class DataLoader:
@@ -35,6 +43,7 @@ class DataLoader:
     one_hot_dict: Dict[str, List]
     extra_characters: List
     tokenized_data_lst: List
+    vocab_size = int
     x: np.ndarray
     y: np.ndarray
     x_onehot: np.ndarray
@@ -51,10 +60,14 @@ class DataLoader:
                                     max_rows=n_rows if n_rows != -1 else None)
         self.data_str = ' '.join(raw_data_np.tolist())
         self.data_lst = list(self.data_str)
-        self._create_dict()
+        self.vocab_size = self._create_dict()
         return self.data_str
 
-    def _create_dict(self) -> None:
+    def _create_dict(self) -> int:
+        """
+        Creates a dictionary of all the characters in the data set.
+        :return: The vocabulary size.
+        """
         vocab = set(self.data_lst)
         one_hot_vocab = np.zeros((len(vocab), len(vocab)))
         for i, letter in enumerate(vocab):
@@ -62,15 +75,22 @@ class DataLoader:
         one_hot_vocab = one_hot_vocab.tolist()
         self.one_hot_dict = {letter: one_hot for letter, one_hot in zip(vocab, one_hot_vocab)}
         save_pickle(self.one_hot_dict, 'one_hot_dict.pkl')
+        return len(vocab)
 
     def sanitize(self) -> List[str]:
+        """
+        Sanitizes the data set.
+        """
         pattern = re.compile(r'[^a-z0-9 ]+')
         self.data_str = pattern.sub('', self.data_str.lower())
         self.data_lst = list(pattern.sub('', self.data_str.lower()))
-        self._create_dict()
+        self.vocab_size = self._create_dict()
         return self.data_lst
 
     def tokenize(self) -> Tuple[List, List]:
+        """
+        Tokenizes the data set.
+        """
         self.tokenized_data_lst = []
         letter_ind = 0
         for letter_ind in range(0, len(self.data_lst) - self.window_size + 1, self.stride):
@@ -80,6 +100,9 @@ class DataLoader:
 
     def create_x_y(self, debug: bool = False) -> Union[Tuple[np.ndarray, np.ndarray],
                                                        Tuple[np.ndarray, np.ndarray, List, List]]:
+        """
+        Creates the x and y values for the data set.
+        """
         y = []
         less_windows = 0 if len(self.extra_characters) > 0 else 1
         for i in range(len(self.tokenized_data_lst) - less_windows):
@@ -98,6 +121,9 @@ class DataLoader:
             return self.x, self.y
 
     def one_hot_encode(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Encodes the data set.
+        """
         x_one_hot = np.array([list(map(self.one_hot_dict.__getitem__, row)) for row in self.x])
         y_one_hot = np.array([list(map(self.one_hot_dict.__getitem__, row)) for row in self.y])
         return x_one_hot, y_one_hot
@@ -105,6 +131,9 @@ class DataLoader:
 
 def save_pickle(data, file_name: str,
                 protocol=pickle.HIGHEST_PROTOCOL):
+    """
+    Saves a pickle file.
+    """
     file_path = os.path.join(model_path, f'encodings')
     os.makedirs(file_path, exist_ok=True)
     file_path = os.path.join(file_path, file_name)
@@ -113,6 +142,9 @@ def save_pickle(data, file_name: str,
 
 
 def load_pickle(file_name: str):
+    """
+    Loads a pickle file.
+    """
     file_path = os.path.join(model_path, f'encodings')
     file_path = os.path.join(file_path, file_name)
     with open(file_path, 'rb') as f:
