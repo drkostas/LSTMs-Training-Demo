@@ -51,7 +51,7 @@ def get_args() -> argparse.Namespace:
 
 
 def build_model_RNN(model_type: str, hidden_size: int, window_size: int, sampling_temp: int,
-                    vocab_size: int, lr: int = .1) -> Model:
+                    vocab_size: int, lr: int = .01) -> Model:
     """ Build The Model"""
     model = Sequential()
 
@@ -63,8 +63,8 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
         model.add(layers.SimpleRNN(hidden_size, return_sequences=True))
 
     model.add(layers.Dense(vocab_size))
-    # model.add(layers.Lambda(lambda x: x / sampling_temp))
-    # model.add(layers.Softmax())
+    #model.add(layers.Lambda(lambda x: x / sampling_temp))
+    #model.add(layers.Softmax())
 
     opt = optimizers.RMSprop(learning_rate=lr)
     model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
@@ -73,9 +73,9 @@ def build_model_RNN(model_type: str, hidden_size: int, window_size: int, samplin
 
 
 def select_char(prob_vec, sampling_temp):
-    prob_vec = prob_vec / sampling_temp
-    soft_max = layers.Softmax()
-    prob_vec = soft_max(prob_vec).numpy()
+    #prob_vec = prob_vec / sampling_temp
+    #soft_max = layers.Softmax()
+    #prob_vec = soft_max(prob_vec).numpy()
     for i in range(len(prob_vec))[1:]:
         prob_vec[i] = prob_vec[i] + prob_vec[i - 1]
     rand_val = np.random.random()
@@ -101,13 +101,36 @@ def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
     return predicted_string
 
 
-def train_model(model, x, y, number_epochs, output_rate) -> Model:
+def train_model(model, x, y, number_epochs, output_rate, callbacks, sampling_temp =1, lr = .01 ) -> Model:
     generated_strings = []
+
+    train_model = Sequential()
+    train_model.add(model)
+    opt = optimizers.RMSprop(learning_rate=lr)
+    train_model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
+
+    predict_model = Sequential()
+    predict_model.add(model)
+    predict_model.add(layers.Lambda(lambda x: x / sampling_temp))
+    predict_model.add(layers.Softmax())
+
+
+
+    train_model.add(layers.Softmax())
     for i in range(number_epochs):
         if (i % output_rate == 0):
             random_start = np.random.randint(0, len(x))
-            generated_strings.append(predict_chars(x[random_start], model, 1, 5))
-        model.fit(x, y, epochs=1)
+            generated_strings.append(predict_chars(x[random_start], predict_model, 1, 5))
+            print(''.join(decode_chars(generated_strings[len(generated_strings)-1])))
+        train_model.fit(x, y, epochs=i+1, initial_epoch = i, batch_size = 10, callbacks=callbacks)
+
+def decode_chars(encoded_values):
+    one_hot_dict = load_pickle('one_hot_dict.pkl')
+    reverse_dict = {''.join(str(int(e)) for e in values):keys for keys, values in one_hot_dict.items()}
+    decoded_chars = []
+    for e_letter in encoded_values:
+        decoded_chars.append(reverse_dict[''.join(str(int(e)) for e in e_letter)])
+    return decoded_chars
 
 
 def main():
@@ -158,21 +181,33 @@ def main():
     # Parameters
     window_size = 20
     hidden_state = 100
-    stride = 5
+    stride = 3
     sampling_temp = 1
     vocab_size = 37
     model_type = "lstm"
-    epochs = 5
+    epochs = 20
     batch_size = 50
 
-    x, y = create_train_data(file_name='beatles.txt', window_size=20, stride=6)
+    x, y = create_train_data(file_name='beatles.txt', window_size=window_size, stride=stride)
     print("####### Building/Loading the Model #######")
     # ---------------------- Build/Load the Model ---------------------- #
 
+    callbacks = []
+    log_folder = "logs/fit/model_" + str(model_type) + \
+                 "/hidden_" + str(hidden_state) + \
+                 "/stride_" + str(stride) + \
+                 "/window_" + str(window_size)
+
+    callbacks.append(TensorBoard(log_dir=log_folder,
+                                 histogram_freq=1,
+                                 write_graph=True,
+                                 write_images=False,
+                                 update_freq='epoch',
+                                 profile_batch=2,
+                                 embeddings_freq=1))
+
     model = build_model_RNN(model_type, hidden_state, window_size, sampling_temp, vocab_size)
-    train_model(model, x, y, epochs, 1)
-    one_hot_dict = load_pickle('one_hot_dict.pkl')
-    reverse_dict = {values:keys for keys, values in one_hot_dict.items()}
+    train_model(model, x, y, epochs, 1, callbacks=callbacks)
 
 
 if __name__ == '__main__':
