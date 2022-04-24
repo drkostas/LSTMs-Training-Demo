@@ -29,24 +29,22 @@ def get_args() -> argparse.Namespace:
         add_help=False)
     # Required Args
     required_args = parser.add_argument_group('Required Arguments')
-    # required_args.add_argument('-t', '--task', type=int, required=True,
-    #                            choices=[1, 2, 3, 4, 5], help="The task/model to train on.")
+    required_args.add_argument('-m', '--model', type=str, required=True,
+                                choices= [ "lstm","simpleRNN"], help="The model to train on.")
+    required_args.add_argument('-e', '--epochs', type=int, required=True,
+                                help="The numbe of epochs to run.")
+    required_args.add_argument('-w', '--window', type=int, required=True,
+                                help="The window size.")
+    required_args.add_argument('-l', '--hidden', type=int, required=True,
+                                help="The Hiddens size.")
+    required_args.add_argument('-s', '--stride', type=int, required=True,
+                                help="The stride.")
+    required_args.add_argument('-t', '--temperature', type=float, required=True,
+                                help="The Sampling temperature for the text generation.")
     # Optional args
     optional_args = parser.add_argument_group('Optional Arguments')
-    optional_args.set_defaults(feature=False)
-    optional_args.add_argument("--tuning", action='store_true', required=False,
-                               help="Whether to use the validation or training set for training.")
-    optional_args.add_argument("--n-rows", default=-1, type=int, required=False,
-                               help="How many rows of the dataset to read.")
-    optional_args.add_argument("--load-checkpoint", action='store_true', required=False,
-                               help="Whether to load model from a checkpoint.")
-    optional_args.add_argument("--plot-only", action='store_true', required=False,
-                               help="No training, only plot results. "
-                                    "Requires the use of --load-checkpoint.")
     optional_args.add_argument("-h", "--help", action="help", help="Show this help message and exit")
     args = parser.parse_args()
-    if args.plot_only and not args.load_checkpoint:
-        raise ValueError("--plot-only requires --load-checkpoint")
     return args
 
 
@@ -101,7 +99,7 @@ def predict_chars(initial_chars, model, sampling_temp, num_chars_produce):
     return predicted_string
 
 
-def train_model(model, x, y, number_epochs, output_rate, callbacks, sampling_temp =1, lr = .01 ) -> Model:
+def train_model(model, x, y, number_epochs, output_rate, callbacks, sampling_temp =1, lr = .01 ) -> list:
     generated_strings = []
 
     train_model = Sequential()
@@ -123,6 +121,9 @@ def train_model(model, x, y, number_epochs, output_rate, callbacks, sampling_tem
             generated_strings.append(predict_chars(x[random_start], predict_model, 1, 5))
             print(''.join(decode_chars(generated_strings[len(generated_strings)-1])))
         train_model.fit(x, y, epochs=i+1, initial_epoch = i, batch_size = 10, callbacks=callbacks)
+    return generated_strings
+
+
 
 def decode_chars(encoded_values):
     one_hot_dict = load_pickle('one_hot_dict.pkl')
@@ -140,52 +141,22 @@ def main():
     """
     args = get_args()
     # ---------------------- Hyperparameters ---------------------- #
-    # epochs = 70
-    # lr = 0.00032
-    # batch_size = 32
-    # chkp_epoch_to_load = 30
-    # chkp_additional_epochs = 30
-    # tuning_epochs = 20
-    # validation_set_perc = 0.2  # Percentage of the train dataset to use for validation
-    # max_conv_layers = 4  # Only for tuning
 
     # ---------------------- Initialize variables ---------------------- #
     print("####### Initializing variables #######")
-    # callbacks = []
-    # log_folder = "logs/fit/t-" + str(args.task) + \
-    #              "/a-" + args.attr + \
-    #              "/b-" + str(batch_size) + \
-    #              "/lr-" + str(lr)
-    # # Create a validation set suffix if needed
-    # val_set_suffix = ''
-    # if args.tuning:
-    #     val_set_suffix = '_tuning'
-    # # Save model path
-    # model_name = f'model_{epochs}epochs_{batch_size}batch-size_{lr}lr'
-    # if args.n_rows != -1:
-    #     model_name += f'_{args.n_rows}rows'
-    # model_name += f'{val_set_suffix}.h5'
-    # save_dir_path = os.path.join(model_path, f'{args.attr}_attr', f'task_{args.task}')
-    # save_file_path = os.path.join(save_dir_path, model_name)
-    # chkp_filename = os.path.join(save_dir_path,
-    #                              model_name[:-3] + f'_epoch{chkp_epoch_to_load:02d}.ckpt')
-    # if not args.tuning:
-    #     build_model = build_model_RNN
-    # else:
-    #     build_model = tune_model_RNN
 
     # ---------------------- Load and prepare Dataset ---------------------- #
     print("####### Loading Dataset #######")
     # Load the dataset
 
     # Parameters
-    window_size = 20
-    hidden_state = 100
-    stride = 3
-    sampling_temp = 1
+    window_size = args.window
+    hidden_state = args.hidden
+    stride = args.stride
+    sampling_temp = args.temperature
     vocab_size = 37
-    model_type = "lstm"
-    epochs = 20
+    model_type = args.model
+    epochs = args.epochs
     batch_size = 50
 
     x, y = create_train_data(file_name='beatles.txt', window_size=window_size, stride=stride)
@@ -207,8 +178,11 @@ def main():
                                  embeddings_freq=1))
 
     model = build_model_RNN(model_type, hidden_state, window_size, sampling_temp, vocab_size)
-    train_model(model, x, y, epochs, 1, callbacks=callbacks)
+    generated_strings = train_model(model, x, y, epochs, 1, callbacks=callbacks)
 
+    with open(log_folder+"/generated_strings.txt","w+") as f:
+        for line in generated_strings:
+            f.write(''.join(decode_chars(line))+"\n")
 
 
 if __name__ == '__main__':
