@@ -7,7 +7,7 @@ import pickle
 model_path = os.path.join(os.path.dirname(__file__), '..', 'models')
 
 
-def create_train_data(file_name: str, window_size: int, stride: int,
+def create_train_data(file_name: str = 'beatles.txt', window_size: int = 10, stride: int = 5,
                       debug: bool = False) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Creates training data from a file.

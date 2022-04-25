@@ -81,28 +81,6 @@ def build_model(model_type: str, hidden_size: int, window_size: int, vocab_size:
     return model
 
 
-def tune_model(model_type: str, hidden_size: int, window_size: int, vocab_size: int,
-               lr: float = .01) -> Model:
-    """ Tune The Model"""
-    model = Sequential()
-
-    model.add(layers.Input(shape=(window_size, vocab_size), name='encoder_input'))
-
-    if model_type == "lstm":
-        model.add(layers.LSTM(hidden_size, return_sequences=True))
-    else:
-        model.add(layers.SimpleRNN(hidden_size, return_sequences=True))
-
-    model.add(layers.Dense(vocab_size))
-    # model.add(layers.Lambda(lambda x: x / sampling_temp))
-    # model.add(layers.Softmax())
-
-    opt = optimizers.RMSprop(learning_rate=lr)
-    model.compile(loss=tf.keras.losses.CategoricalCrossentropy(), optimizer=opt)
-    model.summary()
-    return model
-
-
 def select_char(prob_vec):
     for i in range(len(prob_vec))[1:]:
         prob_vec[i] = prob_vec[i] + prob_vec[i - 1]
@@ -129,8 +107,8 @@ def predict_chars(initial_chars, model, num_chars_produce):
     return predicted_string
 
 
-def train_model(model, x, y, number_epochs, batch_size, output_rate, callbacks, sampling_temp=1,
-                lr=.01, validation_split=0.01, first_epoch=0) -> Model:
+def train_model(model, x, y, number_epochs, batch_size, callbacks, sampling_temp=1,
+                lr=.01, output_rate=1, validation_split=0.01, first_epoch=0) -> Model:
     generated_strings = []
 
     train_model = Sequential()
@@ -144,6 +122,7 @@ def train_model(model, x, y, number_epochs, batch_size, output_rate, callbacks, 
     predict_model.add(layers.Softmax())
 
     train_model.add(layers.Softmax())
+    losses = []
     for i in range(first_epoch, number_epochs):
         if i % output_rate == 0:
             random_start = np.random.randint(0, len(x))
@@ -152,8 +131,10 @@ def train_model(model, x, y, number_epochs, batch_size, output_rate, callbacks, 
                                             num_chars_produce=5)
             generated_strings.append(predicted_chars)
             print(''.join(decode_chars(generated_strings[len(generated_strings) - 1])))
-        train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
-                        callbacks=callbacks, validation_split=validation_split)
+        history = train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
+                                  callbacks=callbacks, validation_split=validation_split)
+        losses.append(history.history['loss'][-1])
+    return losses[-1]
 
 
 def decode_chars(encoded_values):
@@ -166,6 +147,43 @@ def decode_chars(encoded_values):
     return decoded_chars
 
 
+def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callbacks):
+    del callbacks[-1]
+    for stride in (2, 7, 12):
+        for window_size in (5, 9, 15):
+            for lr in (0.01, 0.001):
+                for hidden_state in (100, 300):
+                    for sampling_temp in (1, 5, 9):
+                        for output_rate in (1, 3):
+                            try:
+                                x, y, vocab_size = create_train_data(window_size=window_size,
+                                                                     stride=stride)
+                                stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
+                                                                              patience=5)
+                                callbacks.append(stop_early)
+                                model = build_model(model_type=model_type, hidden_size=hidden_state,
+                                                    window_size=window_size,
+                                                    vocab_size=vocab_size, lr=lr)
+                                loss = train_model(model, x, y,
+                                                   number_epochs=tuning_epochs,
+                                                   sampling_temp=sampling_temp,
+                                                   output_rate=output_rate,
+                                                   batch_size=batch_size,
+                                                   validation_split=validation_set_perc,
+                                                   callbacks=callbacks)
+                                # Get the optimal hyperparameters
+                                print(f"Model "
+                                      f"(stride: {stride}, "
+                                      f"window_size: {window_size},"
+                                      f"lr: {lr}, "
+                                      f"hidden_state: {hidden_state}, "
+                                      f"sampling_temp: {sampling_temp}, "
+                                      f"output_rate: {output_rate}): {loss}")
+                            except Exception as e:
+                                print(e)
+
+
+
 def main():
     """This is the main function of rnn.py
 
@@ -173,13 +191,13 @@ def main():
     """
     args = get_args()
     # ---------------------- Hyperparameters ---------------------- #
-    epochs = 1
-    batch_size = 120
+    epochs = 2
+    batch_size = 24576
     lr = 0.1
     validation_set_perc = .1
     chkp_epoch_to_load = 1  # load checkpoint from this epoch
     extra_epochs = 1  # extra epochs to train after loading checkpoint
-    tuning_epochs = 20  # How many epochs to train for tuning
+    tuning_epochs = 3  # How many epochs to train for tuning
     dataset = args.dataset
     model_type = args.model
     hidden_state = args.hidden_state
@@ -234,31 +252,13 @@ def main():
                                 vocab_size=vocab_size, lr=lr)
     else:
         print("####### Tuning #######")
-        tune_model_ = partial(tune_model, model_type=model_type, hidden_size=hidden_state,
-                              window_size=window_size, vocab_size=vocab_size, lr=lr)
-        model = kt.Hyperband(tune_model_,
-                             objective='val_accuracy',
-                             factor=3,
-                             directory=model_path,
-                             project_name=model_folder_struct.replace("/", "-"))
-        stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
-        callbacks.append(stop_early)
-        model.search(x,
-                     y,
-                     epochs=tuning_epochs,
-                     batch_size=batch_size,
-                     validation_split=validation_set_perc,
-                     callbacks=callbacks)
-        # Get the optimal hyperparameters
-        # best_hps = model.get_best_hyperparameters(num_trials=1)[0]
-        print("Best Model:")
-        print(model.results_summary())
-        print(model.search_space_summary())
+        tune_model(model_type=model_type, tuning_epochs=tuning_epochs, batch_size=batch_size,
+                   validation_set_perc=validation_set_perc, callbacks=callbacks)
         print("####### Tuning Done #######")
         return
     # ---------------------- Train the Model ---------------------- #
     train_model(model=model, x=x, y=y,
-                number_epochs=epochs+extra_epochs if args.load_checkpoint else epochs,
+                number_epochs=epochs + extra_epochs if args.load_checkpoint else epochs,
                 batch_size=batch_size, output_rate=1,
                 callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
                 validation_split=validation_set_perc,
