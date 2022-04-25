@@ -82,6 +82,9 @@ def build_model(model_type: str, hidden_size: int, window_size: int, vocab_size:
 
 
 def select_char(prob_vec):
+    # prob_vec = prob_vec / sampling_temp
+    # soft_max = layers.Softmax()
+    # prob_vec = soft_max(prob_vec).numpy()
     for i in range(len(prob_vec))[1:]:
         prob_vec[i] = prob_vec[i] + prob_vec[i - 1]
     rand_val = np.random.random()
@@ -126,15 +129,12 @@ def train_model(model, x, y, number_epochs, batch_size, callbacks, sampling_temp
     for i in range(first_epoch, number_epochs):
         if i % output_rate == 0:
             random_start = np.random.randint(0, len(x))
-            predicted_chars = predict_chars(initial_chars=x[random_start],
-                                            model=predict_model,
-                                            num_chars_produce=5)
-            generated_strings.append(predicted_chars)
+            generated_strings.append(predict_chars(x[random_start], predict_model, 1, 5))
             print(''.join(decode_chars(generated_strings[len(generated_strings) - 1])))
         history = train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
                                   callbacks=callbacks, validation_split=validation_split)
         losses.append(history.history['loss'][-1])
-    return losses[-1]
+    return generated_strings, losses[-1]
 
 
 def decode_chars(encoded_values):
@@ -164,13 +164,13 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callb
                                 model = build_model(model_type=model_type, hidden_size=hidden_state,
                                                     window_size=window_size,
                                                     vocab_size=vocab_size, lr=lr)
-                                loss = train_model(model, x, y,
-                                                   number_epochs=tuning_epochs,
-                                                   sampling_temp=sampling_temp,
-                                                   output_rate=output_rate,
-                                                   batch_size=batch_size,
-                                                   validation_split=validation_set_perc,
-                                                   callbacks=callbacks)
+                                generated_strings, loss = train_model(model, x, y,
+                                                                      number_epochs=tuning_epochs,
+                                                                      sampling_temp=sampling_temp,
+                                                                      output_rate=output_rate,
+                                                                      batch_size=batch_size,
+                                                                      validation_split=validation_set_perc,
+                                                                      callbacks=callbacks)
                                 # Get the optimal hyperparameters
                                 print(f"Model "
                                       f"(stride: {stride}, "
@@ -181,7 +181,6 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callb
                                       f"output_rate: {output_rate}): {loss}")
                             except Exception as e:
                                 print(e)
-
 
 
 def main():
@@ -257,12 +256,15 @@ def main():
         print("####### Tuning Done #######")
         return
     # ---------------------- Train the Model ---------------------- #
-    train_model(model=model, x=x, y=y,
-                number_epochs=epochs + extra_epochs if args.load_checkpoint else epochs,
-                batch_size=batch_size, output_rate=1,
-                callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
-                validation_split=validation_set_perc,
-                first_epoch=chkp_epoch_to_load if args.load_checkpoint else 0)
+    generated_strings, loss = train_model(model=model, x=x, y=y,
+                                          number_epochs=epochs + extra_epochs if args.load_checkpoint else epochs,
+                                          batch_size=batch_size, output_rate=1,
+                                          callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
+                                          validation_split=validation_set_perc,
+                                          first_epoch=chkp_epoch_to_load if args.load_checkpoint else 0)
+    with open(log_folder + "/generated_strings.txt", "w+") as f:
+        for line in generated_strings:
+            f.write(''.join(decode_chars(line)) + "\n")
 
 
 if __name__ == '__main__':
@@ -271,8 +273,3 @@ if __name__ == '__main__':
     except Exception as e:
         print(str(e) + '\n' + str(traceback.format_exc()))
         raise e
-
-# TODO:
-# Code for tuning
-# Tune models
-# Start training
