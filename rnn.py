@@ -152,16 +152,15 @@ def decode_chars(encoded_values):
     return decoded_chars
 
 
-def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callbacks):
+def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc,
+               callbacks, dataset):
     """
     RNN (stride: 12, window_size: 15,lr: 0.001, hidden_state: 100, sampling_temp: 1, output_rate: 3):
     3.0023319721221924
     LSTM (stride: 12, window_size: 5,lr: 0.01, hidden_state: 100, sampling_temp: 1, output_rate: 1):
     3.111567735671997
-
     """
 
-    del callbacks[-1]
     for stride in (1, 3, 5):
         for window_size in (5, 15, 30):
             for lr in (0.1, 0.05, 0.001):
@@ -169,8 +168,27 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callb
                     for sampling_temp in (1, 3, 5):
                         for output_rate in (1, 3):
                             try:
+                                del callbacks
+                                callbacks = []
                                 x, y, vocab_size = create_train_data(window_size=window_size,
                                                                      stride=stride)
+                                model_folder_struct = f"val" + \
+                                                      f"/dataset_{dataset}" + \
+                                                      f"/model_{model_type}" + \
+                                                      f"/hidden_{hidden_state}" + \
+                                                      f"/batch_{batch_size}" + \
+                                                      f"/stride_{stride}" + \
+                                                      f"/window_{window_size}" + \
+                                                      f"/temperature_{sampling_temp}" + \
+                                                      f"/lr_{lr}"
+                                log_folder = f"logs/{model_folder_struct}"
+                                callbacks.append(TensorBoard(log_dir=log_folder,
+                                                             histogram_freq=1,
+                                                             write_graph=True,
+                                                             write_images=False,
+                                                             update_freq='epoch',
+                                                             profile_batch=2,
+                                                             embeddings_freq=1))
                                 stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
                                                                               patience=5)
                                 callbacks.append(stop_early)
@@ -233,14 +251,6 @@ def main():
                           f"/window_{window_size}" + \
                           f"/temperature_{sampling_temp}" + \
                           f"/lr_{lr}"
-    log_folder = f"logs/{model_folder_struct}"
-    callbacks.append(TensorBoard(log_dir=log_folder,
-                                 histogram_freq=1,
-                                 write_graph=True,
-                                 write_images=False,
-                                 update_freq='epoch',
-                                 profile_batch=2,
-                                 embeddings_freq=1))
     # Create a validation set suffix if needed
     # Save model path
     model_name = model_folder_struct.replace("/", "-") + "/model.h5"
@@ -251,6 +261,15 @@ def main():
         monitor='val_loss',
         mode='auto',
         save_best_only=True))
+    # Setup Tensorboard
+    log_folder = f"logs/{model_folder_struct}"
+    callbacks.append(TensorBoard(log_dir=log_folder,
+                                 histogram_freq=1,
+                                 write_graph=True,
+                                 write_images=False,
+                                 update_freq='epoch',
+                                 profile_batch=2,
+                                 embeddings_freq=1))
 
     # ---------------------- Load and prepare Dataset ---------------------- #
     print("####### Loading Dataset #######")
@@ -268,7 +287,7 @@ def main():
     else:
         print("####### Tuning #######")
         tune_model(model_type=model_type, tuning_epochs=tuning_epochs, batch_size=batch_size,
-                   validation_set_perc=validation_set_perc, callbacks=callbacks)
+                   validation_set_perc=validation_set_perc, callbacks=callbacks, dataset=dataset)
         print("####### Tuning Done #######")
         return
     # ---------------------- Train the Model ---------------------- #
