@@ -149,3 +149,4 @@ dmypy.json
 logs/*
 /project1_empty.py
 /bck/
+/models/encodings/one_hot_dict.pkl

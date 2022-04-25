@@ -129,7 +129,9 @@ def train_model(model, x, y, number_epochs, batch_size, callbacks, sampling_temp
     for i in range(first_epoch, number_epochs):
         if i % output_rate == 0:
             random_start = np.random.randint(0, len(x))
-            generated_strings.append(predict_chars(x[random_start], predict_model, 1, 5))
+            predicted_chars = predict_chars(initial_chars=x[random_start],
+                                            model=predict_model, num_chars_produce=5)
+            generated_strings.append(predicted_chars)
             print(''.join(decode_chars(generated_strings[len(generated_strings) - 1])))
         history = train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
                                   callbacks=callbacks, validation_split=validation_split)
