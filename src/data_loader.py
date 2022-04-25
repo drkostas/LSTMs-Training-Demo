@@ -28,9 +28,17 @@ def create_train_data(file_name: str = 'beatles.txt', window_size: int = 10, str
             print(a, " | ", b)
         for a, b in zip(x[-10:], y[-10:]):
             print(a, " | ", b)
-    print("X shape: ", data[0].shape)
-    print("Y shape: ", data[1].shape)
+    else:
+        x, y = data[0], data[1]
     x_one_hot, yx_one_hot = dl.one_hot_encode()
+    if x.shape > y.shape:
+        x = x[:y.shape[0], :]
+        x_one_hot = x_one_hot[:y.shape[0], :]
+    elif x.shape < y.shape:
+        y = y[:x.shape[0], :]
+        yx_one_hot = yx_one_hot[:x.shape[0], :]
+    print("X shape: ", x.shape)
+    print("Y shape: ", y.shape)
     print("x_one_hot shape: ", x_one_hot.shape)
     print("y_one_hot shape: ", yx_one_hot.shape)
     return x_one_hot, yx_one_hot, dl.vocab_size

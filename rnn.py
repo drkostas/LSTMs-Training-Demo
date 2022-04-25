@@ -1,20 +1,23 @@
 # Base libs
 import traceback
 import argparse
-from functools import partial
 from typing import *
 # ML libs
-import numpy as np
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
+
+tf.get_logger().setLevel('ERROR')
 from tensorflow.keras import backend as K
 from tensorflow.keras import Model, optimizers, losses, metrics
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras import layers
 from tensorflow.keras.losses import mse
 from tensorflow.keras.callbacks import TensorBoard
-import keras_tuner as kt
-from sklearn import metrics
 # Local libs
 from src import *
+import os
 
 
 def get_args() -> argparse.Namespace:
@@ -150,12 +153,20 @@ def decode_chars(encoded_values):
 
 
 def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callbacks):
+    """
+    RNN (stride: 12, window_size: 15,lr: 0.001, hidden_state: 100, sampling_temp: 1, output_rate: 3):
+    3.0023319721221924
+    LSTM (stride: 12, window_size: 5,lr: 0.01, hidden_state: 100, sampling_temp: 1, output_rate: 1):
+    3.111567735671997
+
+    """
+
     del callbacks[-1]
-    for stride in (2, 7, 12):
-        for window_size in (5, 9, 15):
-            for lr in (0.01, 0.001):
-                for hidden_state in (100, 300):
-                    for sampling_temp in (1, 5, 9):
+    for stride in (1, 3, 5):
+        for window_size in (5, 15, 30):
+            for lr in (0.1, 0.05, 0.001):
+                for hidden_state in (100, 300, 500):
+                    for sampling_temp in (1, 3, 5):
                         for output_rate in (1, 3):
                             try:
                                 x, y, vocab_size = create_train_data(window_size=window_size,
@@ -182,6 +193,7 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc, callb
                                       f"sampling_temp: {sampling_temp}, "
                                       f"output_rate: {output_rate}): {loss}")
                             except Exception as e:
+                                print("lookf0rmehehe")
                                 print(e)
 
 
@@ -190,15 +202,17 @@ def main():
 
         Run "tensorboard --logdir logs/fit" in terminal and open http://localhost:6006/
     """
+    tf.random.set_seed(1)
     args = get_args()
     # ---------------------- Hyperparameters ---------------------- #
-    epochs = 2
-    batch_size = 24576
-    lr = 0.1
-    validation_set_perc = .1
+    epochs = 5
+    batch_size = 512
+    lr = 0.001
+    output_rate = 3
+    tuning_epochs = 5  # How many epochs to train for tuning
     chkp_epoch_to_load = 1  # load checkpoint from this epoch
     extra_epochs = 1  # extra epochs to train after loading checkpoint
-    tuning_epochs = 3  # How many epochs to train for tuning
+    validation_set_perc = .1
     dataset = args.dataset
     model_type = args.model
     hidden_state = args.hidden_state
@@ -258,12 +272,14 @@ def main():
         print("####### Tuning Done #######")
         return
     # ---------------------- Train the Model ---------------------- #
+    number_epochs = epochs + extra_epochs if args.load_checkpoint else epochs
+    first_epoch = chkp_epoch_to_load if args.load_checkpoint else 0
     generated_strings, loss = train_model(model=model, x=x, y=y,
-                                          number_epochs=epochs + extra_epochs if args.load_checkpoint else epochs,
-                                          batch_size=batch_size, output_rate=1,
+                                          number_epochs=number_epochs,
+                                          batch_size=batch_size, output_rate=output_rate,
                                           callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
                                           validation_split=validation_set_perc,
-                                          first_epoch=chkp_epoch_to_load if args.load_checkpoint else 0)
+                                          first_epoch=first_epoch)
     with open(log_folder + "/generated_strings.txt", "w+") as f:
         for line in generated_strings:
             f.write(''.join(decode_chars(line)) + "\n")
