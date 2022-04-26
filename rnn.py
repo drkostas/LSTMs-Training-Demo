@@ -28,7 +28,7 @@ def get_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description='Project 4 for the Deep Learning class (COSC 525). '
-                    'Involves the development of a Convolutional Neural Network.',
+                    'Training character-based RNN networks with Tensorflow on Beatles songs.',
         add_help=False)
     # Core args
     core_args = parser.add_argument_group('Core Arguments')
@@ -39,12 +39,16 @@ def get_args() -> argparse.Namespace:
                            choices=['rnn', 'lstm'], help="The model to use.")
     core_args.add_argument('-h', '--hidden-state', type=int, required=False, default=100,
                            help="The size of the hidden state.")
-    core_args.add_argument('-w', '--window', type=int, required=False, default=10,
+    core_args.add_argument('-w', '--window', type=int, required=False, default=15,
                            help="The window size.")
-    core_args.add_argument('-s', '--stride', type=int, required=False, default=6,
+    core_args.add_argument('-s', '--stride', type=int, required=False, default=1,
                            help="The stride size.")
     core_args.add_argument('-t', '--temperature', type=int, required=False, default=1,
                            help="The sampling temperature.")
+    core_args.add_argument('-o', '--output-rate', type=int, required=False, default=1,
+                           help="The output rate.")
+    core_args.add_argument('-b', '--batch-size', type=int, required=False, default=512,
+                           help="The output rate.")
     # Optional args
     optional_args = parser.add_argument_group('Optional Arguments')
     optional_args.set_defaults(feature=False)
@@ -114,7 +118,8 @@ def predict_chars(initial_chars, model, num_chars_produce):
 
 
 def train_model(model, x, y, number_epochs, batch_size, callbacks, sampling_temp=1,
-                lr=.01, output_rate=1, validation_split=0.01, first_epoch=0) -> Model:
+                lr=.01, output_rate=1, validation_split=0.01, first_epoch=0,
+                log_folder='logs') -> Model:
     generated_strings = []
 
     train_model = Sequential()
@@ -130,15 +135,19 @@ def train_model(model, x, y, number_epochs, batch_size, callbacks, sampling_temp
     train_model.add(layers.Softmax())
     losses = []
     for i in range(first_epoch, number_epochs):
+        history = train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
+                                  callbacks=callbacks, validation_split=validation_split)
+        losses.append(history.history['loss'][-1])
         if i % output_rate == 0:
             random_start = np.random.randint(0, len(x))
             predicted_chars = predict_chars(initial_chars=x[random_start],
                                             model=predict_model, num_chars_produce=5)
             generated_strings.append(predicted_chars)
+            with open(log_folder +
+                      "/generated_strings.txt", "a") as f:
+                f.write(''.join(decode_chars(predicted_chars)) + "\n")
             print(''.join(decode_chars(generated_strings[len(generated_strings) - 1])))
-        history = train_model.fit(x, y, epochs=i + 1, initial_epoch=i, batch_size=batch_size,
-                                  callbacks=callbacks, validation_split=validation_split)
-        losses.append(history.history['loss'][-1])
+
     return generated_strings, losses[-1]
 
 
@@ -155,24 +164,24 @@ def decode_chars(encoded_values):
 def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc,
                callbacks, dataset):
     """
-    RNN (stride: 12, window_size: 15,lr: 0.001, hidden_state: 100, sampling_temp: 1, output_rate: 3):
-    3.0023319721221924
-    LSTM (stride: 12, window_size: 5,lr: 0.01, hidden_state: 100, sampling_temp: 1, output_rate: 1):
-    3.111567735671997
+    RNN
+        hidden_100/batch_512/stride_1/window_30/temperature_3/outputrate_3/lr_0.1
+    LSTM
+        hidden_100/batch_512/stride_1/window_30/temperature_5/outputrate_5/lr_0.1
     """
 
-    for stride in (1, 3, 5):
-        for window_size in (5, 15, 30):
-            for lr in (0.1, 0.05, 0.001):
-                for hidden_state in (100, 300, 500):
-                    for sampling_temp in (1, 3, 5):
-                        for output_rate in (1, 3):
+    for stride in (1,):
+        for window_size in (15, 30):
+            for lr in (0.1, 0.001):
+                for hidden_state in (100,):
+                    for sampling_temp in (3, 5, 7):
+                        for output_rate in (1,):
                             try:
                                 del callbacks
                                 callbacks = []
                                 x, y, vocab_size = create_train_data(window_size=window_size,
                                                                      stride=stride)
-                                model_folder_struct = f"val" + \
+                                model_folder_struct = f"val2" + \
                                                       f"/dataset_{dataset}" + \
                                                       f"/model_{model_type}" + \
                                                       f"/hidden_{hidden_state}" + \
@@ -180,6 +189,7 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc,
                                                       f"/stride_{stride}" + \
                                                       f"/window_{window_size}" + \
                                                       f"/temperature_{sampling_temp}" + \
+                                                      f"/outputrate_{output_rate}" + \
                                                       f"/lr_{lr}"
                                 log_folder = f"logs/{model_folder_struct}"
                                 callbacks.append(TensorBoard(log_dir=log_folder,
@@ -201,7 +211,8 @@ def tune_model(model_type, tuning_epochs, batch_size, validation_set_perc,
                                                                       output_rate=output_rate,
                                                                       batch_size=batch_size,
                                                                       validation_split=validation_set_perc,
-                                                                      callbacks=callbacks)
+                                                                      callbacks=callbacks,
+                                                                      log_folder=log_folder)
                                 # Get the optimal hyperparameters
                                 print(f"Model "
                                       f"(stride: {stride}, "
@@ -223,10 +234,8 @@ def main():
     tf.random.set_seed(1)
     args = get_args()
     # ---------------------- Hyperparameters ---------------------- #
-    epochs = 5
-    batch_size = 512
+    epochs = 50
     lr = 0.001
-    output_rate = 3
     tuning_epochs = 5  # How many epochs to train for tuning
     chkp_epoch_to_load = 1  # load checkpoint from this epoch
     extra_epochs = 1  # extra epochs to train after loading checkpoint
@@ -235,8 +244,10 @@ def main():
     model_type = args.model
     hidden_state = args.hidden_state
     window_size = args.window
+    batch_size = args.batch_size
     stride = args.stride
     sampling_temp = args.temperature
+    output_rate = args.output_rate
 
     # ---------------------- Initialize variables ---------------------- #
     print("####### Initializing variables #######")
@@ -250,17 +261,18 @@ def main():
                           f"/stride_{stride}" + \
                           f"/window_{window_size}" + \
                           f"/temperature_{sampling_temp}" + \
+                          f"/outputrate_{output_rate}" + \
                           f"/lr_{lr}"
     # Create a validation set suffix if needed
     # Save model path
     model_name = model_folder_struct.replace("/", "-") + "/model.h5"
     chkp_filename = os.path.join(model_path, model_name[:-3] + f'_epoch{chkp_epoch_to_load:02d}.ckpt')
-    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
-        filepath=os.path.join(model_path, model_name[:-3] + '_epoch{epoch:02d}.ckpt'),
-        save_weights_only=False,
-        monitor='val_loss',
-        mode='auto',
-        save_best_only=True))
+    # callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+    #     filepath=os.path.join(model_path, model_name[:-3] + '_epoch{epoch:02d}.ckpt'),
+    #     save_weights_only=False,
+    #     monitor='val_loss',
+    #     mode='auto',
+    #     save_best_only=True))
     # Setup Tensorboard
     log_folder = f"logs/{model_folder_struct}"
     callbacks.append(TensorBoard(log_dir=log_folder,
@@ -298,8 +310,10 @@ def main():
                                           batch_size=batch_size, output_rate=output_rate,
                                           callbacks=callbacks, sampling_temp=sampling_temp, lr=lr,
                                           validation_split=validation_set_perc,
-                                          first_epoch=first_epoch)
-    with open(log_folder + "/generated_strings.txt", "w+") as f:
+                                          first_epoch=first_epoch,
+                                          log_folder=log_folder)
+    with open(log_folder +
+              "/generated_strings_full.txt", "w") as f:
         for line in generated_strings:
             f.write(''.join(decode_chars(line)) + "\n")
 
