@@ -1,0 +1,14 @@
+kind: banner
+name: LSTMs-Training-Demo
+line: Trains character-level RNNs and LSTMs on Beatles songs to write new lyrics.
+accent: rose
+diagram:
+- note:
+    label: beatles songs
+- arrow
+- box:
+    text: LSTM
+    accent: true
+- arrow
+- doc:
+    label: new lyrics

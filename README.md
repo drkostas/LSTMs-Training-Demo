@@ -1,3 +1,5 @@
+![LSTMs-Training-Demo](docs/images/banner.png)
+
 # COSC525: Project 4: Train with Tensorflow
 
 [![GitHub license](https://img.shields.io/badge/license-Apache-blue.svg)](
